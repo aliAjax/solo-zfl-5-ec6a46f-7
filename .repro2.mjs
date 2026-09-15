@@ -1,0 +1,50 @@
+import { chromium } from 'playwright'
+const BASE = 'http://localhost:4173'
+const browser = await chromium.launch()
+const page = await (await browser.newContext({ viewport: { width: 1280, height: 800 } })).newPage()
+page.on('pageerror', (e) => console.log('PAGE ERROR:', e.message))
+page.on('console', (m) => { if (m.type() === 'error') console.log('CONSOLE ERR:', m.text().slice(0, 200)) })
+
+async function addRecord(route, segment, sign, note, weather) {
+  await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' })
+  const inputs = page.locator('form input')
+  await inputs.nth(0).fill(route); await inputs.nth(1).fill(segment); await inputs.nth(2).fill(sign)
+  if (weather) await page.locator(`form button:has-text("${weather}")`).click()
+  await page.locator('form textarea').fill(note)
+  await page.locator('button:has-text("保存记录")').click()
+  await page.waitForSelector('text=记录已保存', { timeout: 5000 })
+  await page.waitForTimeout(1700)
+}
+await addRecord('27路', '人民广场→静安寺', '老王面馆', '雨打在车窗上,路灯在积水里晃出倒影,一只猫躲进便利店门口。', '小雨')
+await addRecord('27路', '静安寺→徐家汇', '24小时便利店', '又下雨了,路灯全亮了,便利店门口挤满了躲雨的人。', '小雨')
+await addRecord('106路', '外滩→城隍庙', '', '黄昏的梧桐影子很长,老人在站台边下棋。', '多云')
+
+// 复现 E2E 第 3-4 节
+await page.goto(BASE + '/imagery', { waitUntil: 'domcontentloaded' })
+await page.waitForSelector('text=意象索引台', { timeout: 8000 })
+const rankSection = page.locator('section', { has: page.locator('h2', { hasText: '意象榜' }) })
+await rankSection.locator('button', { hasText: '关系' }).first().click()
+await page.waitForTimeout(300)
+await rankSection.locator('button', { hasText: '雨' }).first().click()
+await page.waitForURL(/imagery=/, { timeout: 5000 })
+await page.waitForSelector('text=意象筛选:')
+console.log('S4 ok, url:', decodeURIComponent(page.url()))
+await page.click('text=清除筛选')
+await page.waitForSelector('text=全部')
+console.log('S4 cleared, url:', page.url())
+
+// 复现 E2E 第 5 节
+await page.goto(BASE + '/imagery', { waitUntil: 'domcontentloaded' })
+await page.waitForSelector('text=「便利店」')
+console.log('S5 imagery loaded, url:', page.url())
+await page.click('text=「便利店」')
+await page.waitForURL(/theme=/, { timeout: 5000 })
+console.log('S5 after nav, url:', decodeURIComponent(page.url()))
+await page.waitForSelector('text=主题「便利店」')
+console.log('S5 banner found')
+await page.waitForTimeout(300)
+console.log('S5 url now:', decodeURIComponent(page.url()))
+const h1 = await page.locator('h1').first().textContent().catch(() => '(no h1)')
+console.log('S5 h1:', h1)
+console.log('S5 main head:', (await page.locator('main').textContent()).replace(/\s+/g, ' ').slice(0, 150))
+await browser.close()
