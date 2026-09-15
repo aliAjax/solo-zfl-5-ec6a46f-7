@@ -80,7 +80,7 @@ export default function ImageryPage() {
           </p>
           {matchedRecordCount < totalRecords && (
             <p className="mt-1 text-xs text-mist-500">
-              {matchedRecordCount} 条记录含有可识别的意象;在观察笔记里多写看到的景物、招牌、天气,索引会更丰富
+              {matchedRecordCount} 条记录含有反复出现的意象;同一个意象在至少两条记录里出现才会上榜
             </p>
           )}
         </header>
@@ -89,10 +89,10 @@ export default function ImageryPage() {
           /* ---------- 有记录但没识别出意象 ---------- */
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <Wand2 className="w-12 h-12 text-dusk-400/40 mb-4" />
-            <p className="text-mist-300 text-lg mb-2">暂时没有识别出意象</p>
+            <p className="text-mist-300 text-lg mb-2">还没有反复出现的意象</p>
             <p className="text-mist-500 text-sm max-w-sm">
+              同一个意象在至少两条记录里出现时,才会列在这里。
               试着在观察笔记里写下你反复看到的东西——雨、路灯、猫、某家店的招牌……
-              它们会在这里慢慢聚成索引
             </p>
           </div>
         ) : (
@@ -159,7 +159,7 @@ export default function ImageryPage() {
                 意象榜
               </h2>
               <p className="text-mist-500 text-xs mb-4">
-                按重要程度排序——点意象跳到包含它的记录,点「关系」看看它常和谁一起出现
+                在至少两条记录里反复出现的意象,按重要程度排序——点意象跳到包含它的记录,点「关系」看看它常和谁一起出现
               </p>
               <div className="space-y-2">
                 {visibleItems.map((item, rank) => (

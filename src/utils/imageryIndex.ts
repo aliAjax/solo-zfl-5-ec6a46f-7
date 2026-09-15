@@ -53,6 +53,10 @@ const MAX_RELATED = 8
 const MAX_TERMS_PER_RECORD_FOR_PAIRS = 60
 const MIN_SHARED_FOR_THEME = 2
 const MIN_RECORDS_FOR_DISCOVERED = 2
+/** 「反复出现」的统一门槛:至少在这么多条不同记录里出现,才算反复出现的意象 */
+const MIN_RECORDS_FOR_IMAGERY = 2
+/** 「经常一起出现」的统一门槛:关系/相关意象至少在这么多条记录里同现才展示 */
+const MIN_SHARED_FOR_RELATION = 2
 const PAIR_SEP = '\u0001'
 
 /** 内置意象词典:城市车窗观察中常见的具体意象 */
@@ -173,6 +177,8 @@ export function buildImageryIndex(scenes: WindowScene[]): ImageryIndex {
   const termRecords = new Map<string, Set<number>>()
   const termTotal = new Map<string, number>()
   const termSource = new Map<string, 'lexicon' | 'discovered'>()
+  // 每条记录的语料缓存,后面统一用 includes 语义重算记录归属(与时间线筛选同一套谓词)
+  const corpora: string[] = scenes.map((s) => getSceneCorpus(s))
   // 自动发现候选(二字 + 三字):记录覆盖、总次数、左右汉字上下文
   interface Cand { records: Set<number>; total: number; left: Set<string>; right: Set<string> }
   const candMap = new Map<string, Cand>()
@@ -185,7 +191,7 @@ export function buildImageryIndex(scenes: WindowScene[]): ImageryIndex {
   }
 
   scenes.forEach((scene, idx) => {
-    const corpus = getSceneCorpus(scene)
+    const corpus = corpora[idx]
     if (!corpus || !corpus.trim()) return
 
     // 1) 词典命中,同时记录命中区间(自动发现词要避开这些区间)
@@ -254,6 +260,11 @@ export function buildImageryIndex(scenes: WindowScene[]): ImageryIndex {
   const qualifiedTrigrams = qualified.filter((q) => q.term.length === 3)
   const discovered = qualified
     .filter((q) => {
+      // 是某个词典词子串的词不发现(如「便利」⊂「便利店」):它会把词典词的记录
+      // 也算进自己的时间线匹配里,语义上也重复
+      for (const L of IMAGERY_LEXICON) {
+        if (L.length > q.term.length && L.includes(q.term)) return false
+      }
       if (q.term.length !== 2) return true
       for (const t of qualifiedTrigrams) {
         if (!t.term.includes(q.term)) continue
@@ -267,12 +278,32 @@ export function buildImageryIndex(scenes: WindowScene[]): ImageryIndex {
     })
     .sort((a, b) => b.recs.size - a.recs.size || b.total - a.total || (a.term < b.term ? -1 : 1))
     .slice(0, MAX_DISCOVERED)
-  for (const { term, recs, total } of discovered) {
-    for (const idx of recs) noteTerm(term, idx, 0, 'discovered')
+  // 发现词的记录归属用 includes 语义统一重算——与时间线 sceneContainsTerm 是同一套
+  // 谓词,保证榜单/主题/关系上的记录数和点进去看到的记录一致
+  for (const { term } of discovered) {
+    let total = 0
+    corpora.forEach((corpus, idx) => {
+      if (!corpus) return
+      let count = 0
+      let from = 0
+      while (from <= corpus.length - term.length) {
+        const at = corpus.indexOf(term, from)
+        if (at === -1) break
+        count++
+        from = at + term.length
+      }
+      if (count > 0) {
+        if (!termRecords.has(term)) termRecords.set(term, new Set())
+        termRecords.get(term)!.add(idx)
+        total += count
+      }
+    })
     termTotal.set(term, total)
+    termSource.set(term, 'discovered')
   }
 
-  // 4) 意象榜:按重要程度(覆盖记录数 → 总次数 → 字序)排序
+  // 4) 意象榜:只保留「反复出现」的意象(≥MIN_RECORDS_FOR_IMAGERY 条记录),
+  //    按重要程度(覆盖记录数 → 总次数 → 字序)排序
   const items: ImageryItem[] = [...termRecords.entries()]
     .map(([term, recs]) => ({
       term,
@@ -281,6 +312,7 @@ export function buildImageryIndex(scenes: WindowScene[]): ImageryIndex {
       source: termSource.get(term) || 'lexicon',
       related: [] as ImageryRelation[],
     }))
+    .filter((it) => it.recordCount >= MIN_RECORDS_FOR_IMAGERY)
     .sort(byImportance)
     .slice(0, MAX_ITEMS)
 
@@ -306,9 +338,10 @@ export function buildImageryIndex(scenes: WindowScene[]): ImageryIndex {
     }
   }
 
-  // 7) 每个意象的相关意象
+  // 7) 每个意象的相关意象(同现 ≥MIN_SHARED_FOR_RELATION 条记录才算「经常一起出现」)
   const relatedMap = new Map<string, ImageryRelation[]>()
   for (const [key, shared] of pairCount) {
+    if (shared < MIN_SHARED_FOR_RELATION) continue
     const [a, b] = key.split(PAIR_SEP)
     if (!relatedMap.has(a)) relatedMap.set(a, [])
     if (!relatedMap.has(b)) relatedMap.set(b, [])
@@ -322,12 +355,13 @@ export function buildImageryIndex(scenes: WindowScene[]): ImageryIndex {
     item.related = rel
   }
 
-  // 8) 全局共现榜(关系展示区用)
+  // 8) 全局共现榜(关系展示区用,同样执行 ≥MIN_SHARED_FOR_RELATION 的同现门槛)
   const pairs: ImageryPair[] = [...pairCount.entries()]
     .map(([key, shared]) => {
       const [a, b] = key.split(PAIR_SEP)
       return { a, b, shared }
     })
+    .filter((p) => p.shared >= MIN_SHARED_FOR_RELATION)
     .sort((x, y) => y.shared - x.shared || (x.a < y.a ? -1 : x.a > y.a ? 1 : x.b < y.b ? -1 : 1))
     .slice(0, MAX_PAIRS)
 
